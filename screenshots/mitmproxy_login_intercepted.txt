@@ -1,0 +1,28 @@
+[20:45:18.586] HTTP(S) proxy listening at *:8888.
+[20:47:23.035][127.0.0.1:59202] client connect
+[20:47:23.500][127.0.0.1:59202] server connect www.google.com:80 (142.251.156.119:80)
+127.0.0.1:59202: GET http://www.google.com/gen_204
+              << 204 No Content 0b
+[20:47:23.630][127.0.0.1:59202] server disconnect www.google.com:80 (142.251.156.119:80)
+[20:47:23.631][127.0.0.1:59202] client disconnect
+[20:47:25.513][127.0.0.1:59206] client connect
+[20:47:25.518][127.0.0.1:59207] client connect
+[20:47:25.971][127.0.0.1:59206] server connect www.google.com:443 (142.251.156.119:443)
+[20:47:26.042][127.0.0.1:59207] server connect connectivitycheck.gstatic.com:80 (142.251.38.67:80)
+127.0.0.1:59207: GET http://connectivitycheck.gstatic.com/generate_204
+              << 204 No Content 0b
+[20:47:26.157][127.0.0.1:59207] server disconnect connectivitycheck.gstatic.com:80 (142.251.38.67:80)
+[20:47:26.158][127.0.0.1:59207] client disconnect
+127.0.0.1:59206: GET https://www.google.com/generate_204
+              << 204 No Content 0b
+[20:47:27.157][127.0.0.1:59206] server disconnect www.google.com:443 (142.251.156.119:443)
+[20:47:27.158][127.0.0.1:59206] client disconnect
+[20:47:31.097][127.0.0.1:59228] client connect
+[20:48:46.265][127.0.0.1:59228] error establishing server connection: [Errno 60] Connect call failed ('10.0.2.2', 4444)
+127.0.0.1:59228: POST http://10.0.2.2:4444/login
+ << [Errno 60] Connect call failed ('10.0.2.2', 4444)
+[20:48:46.275][127.0.0.1:59228] client disconnect
+[20:50:34.081][127.0.0.1:59906] client connect
+[20:51:49.550][127.0.0.1:59906] error establishing server connection: [Errno 60] Connect call failed ('10.0.2.2', 4444)
+127.0.0.1:59906: POST http://10.0.2.2:4444/login
+ << [Errno 60] Connect call failed ('10.0.2.2', 4444)

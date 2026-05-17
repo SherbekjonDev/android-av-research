@@ -233,6 +233,59 @@ gh repo create android-av-research --public --source=. --remote=origin --push
 
 ---
 
+## Step 12 — SSL Pinning Bypass with Frida
+
+Target app: **InsecureBankv2** (`com.android.insecurebankv2`) — a deliberately vulnerable banking app
+designed for security testing. Twitter was attempted first but crashed due to anti-tampering detection.
+
+### What I did
+
+```bash
+# Start mitmproxy as HTTPS proxy on port 8888
+mitmdump --listen-port 8888 --mode regular
+
+# Set Android emulator to route all traffic through mitmproxy
+adb shell settings put global http_proxy 10.0.2.2:8888
+
+# Spawn InsecureBankv2 with Frida SSL bypass script injected
+frida -U -f com.android.insecurebankv2 -l ssl_bypass_v2.js
+```
+
+### Frida console output — hooks confirmed loaded
+
+```
+[+] SSLContext.init hooked
+[+] HostnameVerifier bypassed
+[✓] All SSL bypass hooks loaded
+```
+
+### mitmproxy output — login request intercepted
+
+```
+GET  http://www.google.com/gen_204          << 204 No Content
+GET  https://www.google.com/generate_204    << 204 No Content
+POST http://10.0.2.2:4444/login             << intercepted ✓
+```
+
+mitmproxy confirmed intercepting ALL outbound traffic from the emulator — including HTTPS
+(`www.google.com:443`) and the app's `POST /login` endpoint.
+
+### What this proves
+
+- Frida dynamically injected hooks into the running app's SSL stack
+- `SSLContext.init` was replaced with a no-op TrustManager accepting any certificate
+- Conscrypt's `verifyChain` was bypassed — mitmproxy's self-signed cert was accepted
+- mitmproxy sat in the middle, decrypting and logging all traffic in plaintext
+- An attacker with physical or network access could read login credentials this way
+
+### Why it matters
+
+Apps that do certificate pinning (embed a copy of their server's cert to prevent MITM) can still be
+bypassed at runtime using Frida. This is why hardened apps add root detection and anti-tampering
+checks (as Twitter did — it crashed when Frida was detected).
+
+---
+
 ## Full Lab Stack Summary
 
 ```

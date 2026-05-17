@@ -100,10 +100,62 @@ The dropper script itself is invisible to AVG. However, once the assembled paylo
 
 ---
 
+## Phase 2 — SSL Pinning Bypass (Frida + mitmproxy)
+
+**Target:** InsecureBankv2 — a deliberately vulnerable banking app for security research  
+**Goal:** Intercept HTTPS traffic that an app would normally protect with certificate pinning
+
+### Setup
+
+```bash
+# Route all emulator traffic through mitmproxy
+mitmdump --listen-port 8888 --mode regular
+adb shell settings put global http_proxy 10.0.2.2:8888
+
+# Spawn target app with Frida hooks injected at startup
+frida -U -f com.android.insecurebankv2 -l scripts/ssl_bypass.js
+```
+
+### Frida Hook Output
+
+```
+[+] SSLContext.init hooked
+[+] HostnameVerifier bypassed
+[✓] All SSL bypass hooks loaded
+```
+
+### mitmproxy Intercepted Traffic
+
+```
+GET  http://www.google.com/gen_204           << 204 No Content
+GET  https://www.google.com/generate_204     << 204 No Content  ← HTTPS decrypted
+POST http://10.0.2.2:4444/login              << login captured ✓
+```
+
+### What was bypassed
+
+| Hook | Target | Effect |
+|------|--------|--------|
+| `SSLContext.init` | All SSL connections | Replaced TrustManager — accepts any cert |
+| `Conscrypt.verifyChain` | Android's TLS stack | Chain validation skipped |
+| `OkHttp3.CertificatePinner.check` | OkHttp pinning | Returns without throwing |
+| `WebViewClient.onReceivedSslError` | WebView HTTPS | Calls `handler.proceed()` |
+| `HttpsURLConnection.setDefaultHostnameVerifier` | Hostname check | No-op |
+
+### Key finding
+
+Frida can inject bypass hooks **before the app's first network call** (using `-f` spawn mode).
+By the time the login button is tapped, all SSL validation is already neutralized.
+mitmproxy then decrypts and logs credentials in plaintext — even if the app had certificate pinning.
+
+---
+
 ## What This Demonstrates
 
 - Setting up a professional Android security research environment
 - Systematic AV evasion methodology (static → encoded → runtime)
+- Dynamic instrumentation with Frida — hooking live Java methods at runtime
+- HTTPS traffic interception with mitmproxy after SSL pinning bypass
 - Understanding the difference between **signature-based** and **behavior-based** detection
 - Responsible disclosure mindset — findings documented for defensive improvement
 

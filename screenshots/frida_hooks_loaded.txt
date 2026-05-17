@@ -1,0 +1,18 @@
+     ____
+    / _  |   Frida 17.9.10 - A world-class dynamic instrumentation toolkit
+   | (_| |
+    > _  |   Commands:
+   /_/ |_|       help      -> Displays the help system
+   . . . .       object?   -> Display information about 'object'
+   . . . .       exit/quit -> Exit
+   . . . .
+   . . . .   More info at https://frida.re/docs/home/
+   . . . .
+   . . . .   Connected to Android Emulator 5554 (id=emulator-5554)
+Spawning `com.android.insecurebankv2`...
+Spawned `com.android.insecurebankv2`. Resuming main thread!
+[Android Emulator 5554::com.android.insecurebankv2 ]-> [+] SSLContext.init hooked
+[+] HostnameVerifier bypassed
+
+[✓] All SSL bypass hooks loaded
+

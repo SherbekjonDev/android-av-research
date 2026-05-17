@@ -260,6 +260,42 @@ Any app holding `READ_LOGS` silently harvests every credential entered into the 
 
 ---
 
+## Phase 5 — Malicious APK (Proof-of-Concept Attacker App)
+
+A real Android app (`malicious_app/`) that exploits all InsecureBankv2 vulnerabilities with one button press. Disguised as "System Update" to demonstrate social engineering.
+
+**APK:** `malicious_app/attacker.apk`  
+**Source:** `malicious_app/app/src/main/java/com/research/attacker/AttackActivity.java`
+
+### What it does
+
+Tapping "Run All Exploits" fires 4 attacks sequentially from a single installed app — no ADB, no root, no permissions beyond what's declared:
+
+```
+[*] Starting exploit chain against com.android.insecurebankv2
+
+[1] Launching PostLogin without credentials...
+    [✓] PostLogin opened — full banking dashboard accessible
+[2] Launching DoTransfer without credentials...
+    [✓] DoTransfer opened — money transfer screen accessible
+[3] Sending theBroadcast — SMS password exfiltration...
+    [✓] Broadcast sent to MyBroadCastReceiver
+    [✓] If victim has logged in: password SMS'd to 15555215554
+[4] Querying TrackUserContentProvider (login history)...
+    [✓] ContentProvider queried
+
+[✓] All exploits fired.
+```
+
+![Attacker App Output](screenshots/malicious_app_exploits.png)
+![PostLogin Hijacked by Attacker App](screenshots/malicious_app_postlogin_hijack.png)
+
+### Key point
+
+The attacker app needs **zero special permissions** to launch banking activities or send the broadcast. Android's `exported=true` with no `android:permission` attribute means any installed app is authorized by default.
+
+---
+
 ## What This Demonstrates
 
 - Setting up a professional Android security research environment

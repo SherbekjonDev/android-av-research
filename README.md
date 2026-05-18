@@ -100,6 +100,37 @@ The dropper script itself is invisible to AVG. However, once the assembled paylo
 
 ---
 
+### Kaspersky Free
+
+Full scan: 2111 files · 1 min 29 sec · **Quarantined: 2**
+
+| File | Detection | Notes |
+|------|-----------|-------|
+| `eicar.txt` | **DETECTED** | Threat: EICAR-Test-File → Quarantined |
+| `runtime_payload.txt` | **DETECTED** | Threat: EICAR-Test-File → Quarantined |
+| `eicar_b64.txt` | **MISSED** | Base64 encoding bypasses scanner |
+| `vacation_photo.jpg` | **MISSED** | Extension spoofing not caught |
+| `dropper.sh` | **MISSED** | Script not flagged, only its output |
+
+![Kaspersky Scan Result](screenshots/kaspersky_scan_result.png)
+![Kaspersky Detection Report](screenshots/kaspersky_detections.png)
+
+---
+
+### AV Comparison Summary
+
+| File | AVG | Kaspersky | Notes |
+|------|-----|-----------|-------|
+| `eicar.txt` | **DETECTED** | **DETECTED** | Both catch raw EICAR |
+| `runtime_payload.txt` | **DETECTED** | **DETECTED** | Both catch assembled payload |
+| `eicar_b64.txt` | **MISSED** | **MISSED** | Base64 bypasses both |
+| `vacation_photo.jpg` | **MISSED** | **MISSED** | Extension spoofing bypasses both |
+| `dropper.sh` | **MISSED** | **MISSED** | Script not flagged by either |
+
+Both engines share the same detection profile: signature-based, no content decoding, no script analysis.
+
+---
+
 ## Phase 2 — SSL Pinning Bypass (Frida + mitmproxy)
 
 **Target:** InsecureBankv2 — a deliberately vulnerable banking app for security research  

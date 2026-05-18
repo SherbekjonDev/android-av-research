@@ -580,6 +580,57 @@ Screenshot: `screenshots/logcat_cred_leak.png` (login screen visible — credent
 
 ---
 
+## Step 17 — Kaspersky Full Scan: EICAR Detection Results
+
+Ran Kaspersky Free full device scan against the same 5 EICAR test files already on `/sdcard/Download/`.
+
+### Setup
+Kaspersky was sideloaded from XAPK, onboarded through the wizard (EULA → permissions → storage grant via `adb shell appops set com.kms.free MANAGE_EXTERNAL_STORAGE allow`), then full scan triggered via UI:
+
+```
+Scan Device → Full scan (All files on the device)
+```
+
+### Scan result
+
+```
+Scanned: 2111 files
+Time:     1 min. 29 sec.
+Detected: 2
+Quarantined: 2
+Deleted: 0
+```
+
+### Kaspersky Reports log output
+
+```
+Quarantined file: /storage/emulated/0/Download/runtime_payload.txt
+Threat detected.  Infected file: /storage/emulated/0/Download/runtime_payload.txt
+Threat: EICAR-Test-File
+
+Quarantined file: /storage/emulated/0/Download/eicar.txt
+Threat detected.  Infected file: /storage/emulated/0/Download/eicar.txt
+Threat: EICAR-Test-File
+```
+
+### Detection table
+
+| File | Result | Notes |
+|------|--------|-------|
+| `eicar.txt` | **DETECTED** | EICAR-Test-File → Quarantined |
+| `runtime_payload.txt` | **DETECTED** | EICAR-Test-File → Quarantined |
+| `eicar_b64.txt` | **MISSED** | Base64 bypasses scanner |
+| `vacation_photo.jpg` | **MISSED** | Extension spoofing not caught |
+| `dropper.sh` | **MISSED** | Script not flagged |
+
+Screenshots: `screenshots/kaspersky_scan_result.png`, `screenshots/kaspersky_detections.png`
+
+### Key finding
+
+Kaspersky's detection profile is **identical to AVG** — same two files caught, same three missed. Both engines rely on byte-signature matching on raw file content. Neither decodes base64 before matching, neither treats `.jpg` files with suspicion, and neither statically analyses shell scripts for payload construction.
+
+---
+
 ## Full Lab Stack Summary
 
 ```

@@ -327,6 +327,67 @@ The attacker app needs **zero special permissions** to launch banking activities
 
 ---
 
+## Phase 6 — APK Tampering (apktool)
+
+**Target:** InsecureBankv2  
+**Goal:** Decompile APK → patch smali bytecode → repack → sign → install
+
+### Process
+
+```bash
+# 1. Decompile
+apktool d insecurebank.apk -o insecurebank_smali
+
+# 2. Patch — change hardcoded AES key in CryptoClass.smali line 29
+# Before: const-string v0, "This is the super secret key 123"
+# After:  const-string v0, "PATCHED_KEY_RESEARCHER!!"
+
+# 3. Patch app name in res/values/strings.xml
+# Before: <string name="app_name">InsecureBankv2</string>
+# After:  <string name="app_name">InsecureBankv2 [PATCHED]</string>
+
+# 4. Repack
+apktool b insecurebank_smali -o insecurebank_patched_unsigned.apk
+
+# 5. Sign with new keystore
+keytool -genkey -keystore research.keystore -alias research ...
+jarsigner -keystore research.keystore insecurebank_patched_unsigned.apk research
+zipalign -v 4 insecurebank_patched_unsigned.apk insecurebank_patched.apk
+
+# 6. Install
+adb uninstall com.android.insecurebankv2
+adb install insecurebank_patched.apk
+```
+
+### Results
+
+**App name visible in title bar and system dialogs — confirms smali patch survived repack:**
+
+![APK Tampered Name](screenshots/apk_tampered_name.png)
+
+**Key patch breaks all stored credential decryption:**
+
+```python
+ciphertext = base64.b64decode('0JQhVcadBP6rBi9y0nf9wA==')  # stored password
+
+Original key  →  b'Dinesh@123!\x05\x05\x05\x05\x05'   ← correct plaintext
+Patched key   →  b'\x1e\x9e\xaa\x94\x96\x1c\xf6f...'  ← garbage
+```
+
+### What this demonstrates
+
+Any Android APK without code signing certificate pinning can be:
+1. Decompiled to readable smali bytecode with `apktool`
+2. Patched — changing constants, logic, or adding new code
+3. Repacked and signed with an attacker-controlled certificate
+4. Installed on any device with "Unknown sources" enabled
+
+The OS accepts the patched APK as a valid install — it cannot detect that the signing certificate changed. Users who sideload apps have no way to verify integrity.
+
+**Patched APK:** `insecurebank_patched.apk` (3.3 MB)
+
+---
+
 ## What This Demonstrates
 
 - Setting up a professional Android security research environment

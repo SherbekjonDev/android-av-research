@@ -631,6 +631,61 @@ Kaspersky's detection profile is **identical to AVG** — same two files caught,
 
 ---
 
+## Step 18 — APK Tampering with apktool
+
+Decompiled InsecureBankv2, patched smali bytecode, repacked, signed, and verified the tampered APK installs and runs.
+
+### What I changed
+
+**1. Hardcoded AES key** — `CryptoClass.smali` line 29:
+```smali
+# Before
+const-string v0, "This is the super secret key 123"
+
+# After
+const-string v0, "PATCHED_KEY_RESEARCHER!!"
+```
+
+**2. App name** — `res/values/strings.xml`:
+```xml
+<!-- Before -->
+<string name="app_name">InsecureBankv2</string>
+
+<!-- After -->
+<string name="app_name">InsecureBankv2 [PATCHED]</string>
+```
+
+### Commands
+
+```bash
+apktool d insecurebank.apk -o insecurebank_smali
+# ... edit smali + strings.xml ...
+apktool b insecurebank_smali -o insecurebank_patched_unsigned.apk
+keytool -genkey -keystore /tmp/research.keystore -alias research -keyalg RSA -keysize 2048 -validity 365
+jarsigner -keystore /tmp/research.keystore insecurebank_patched_unsigned.apk research
+zipalign -v 4 insecurebank_patched_unsigned.apk insecurebank_patched.apk
+adb uninstall com.android.insecurebankv2
+adb install insecurebank_patched.apk
+```
+
+### Results
+
+App launched — title bar and system dialogs show **"InsecureBankv2 [PATCHED]"**.
+
+Key patch verification — decrypting the same stored ciphertext:
+```
+Original key "This is the super secret key 123" → Dinesh@123!  ✓ (correct)
+Patched key  "PATCHED_KEY_RESEARCHER!!"          → \x1e\x9e\xaa... ✗ (garbage)
+```
+
+Screenshot: `screenshots/apk_tampered_name.png`
+
+### Why this matters
+
+`apktool` reduces Android binary protection to zero. Any APK without additional runtime integrity checks (SafetyNet attestation, root detection, certificate pinning on the signing cert) can be silently repackaged. The OS installs and runs patched APKs with no warning beyond the certificate change — which users cannot inspect.
+
+---
+
 ## Full Lab Stack Summary
 
 ```
